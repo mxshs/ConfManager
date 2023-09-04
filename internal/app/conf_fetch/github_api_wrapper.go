@@ -56,14 +56,18 @@ func (w *Wrapper) FetchNames() ([]RepoName, error) {
         return nil, ok
     }
 
-    res_bytes, err:= io.ReadAll(res.Body)
+    res_bytes, err := io.ReadAll(res.Body)
     if err != nil {
         return nil, err 
     }
 
     var resp []RepoName
-    _ = json.Unmarshal(res_bytes, &resp)
     
+    err = json.Unmarshal(res_bytes, &resp)
+    if err != nil {
+        return nil, err
+    }
+
     return resp, nil 
 }
 

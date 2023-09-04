@@ -12,10 +12,12 @@ type cache struct {
     time time.Time
 }
 
+const CACHE_INVAL = 5 * time.Minute
+
 var GITHUB_TOKEN string
 var GITHUB_USERNAME string
 var W *Wrapper
-var Cache *cache 
+var Cache *cache
 
 func SetEnv() {
     err := godotenv.Load(".env")
@@ -29,6 +31,7 @@ func SetEnv() {
 
 func init() {
     SetEnv()
+
     W = &Wrapper{}
     W.SetToken(GITHUB_TOKEN)
     W.SetUsername(GITHUB_USERNAME)
@@ -40,7 +43,7 @@ func init() {
 }
 
 func GetNamesForAutocomp() ([]string, error) {
-    if time.Since(Cache.time) < 5 * time.Minute {
+    if time.Since(Cache.time) < CACHE_INVAL {
        return Cache.arr, nil
     }
 
