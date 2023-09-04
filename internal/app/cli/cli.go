@@ -2,8 +2,10 @@ package cli
 
 import (
 	"bufio"
+	"confmanager/internal/app/conf_fetch"
 	"io"
 	"os"
+	"strings"
 )
 
 type EofError interface {
@@ -73,7 +75,12 @@ func readWord(reader *bufio.Reader) ([]byte, error) {
     currByte, _ := reader.ReadByte()
     for currByte != ' ' && currByte != '\n' {
         if currByte == '\t' {
-            io.WriteString(os.Stdout, "yo")
+            res, err := conf_fetch.GetNamesForAutocomp()
+            if err != nil {
+                io.WriteString(os.Stdout, err.Error())
+            }
+
+            io.WriteString(os.Stdout, strings.Join(res, "\t"))
         }
         buf = append(buf, currByte)
         currByte, _ = reader.ReadByte()
