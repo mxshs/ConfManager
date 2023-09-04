@@ -1,6 +1,7 @@
 package conf_fetch
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -44,9 +45,11 @@ func init() {
 
 func GetNamesForAutocomp() ([]string, error) {
     if time.Since(Cache.time) < CACHE_INVAL {
-       return Cache.arr, nil
+        fmt.Println("cache hit")
+        return Cache.arr, nil
     }
 
+    fmt.Println("cache outdated")
     err := updateCache()
 
     return Cache.arr, err 
