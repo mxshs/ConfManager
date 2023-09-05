@@ -1,0 +1,5 @@
+name: hello
+steps:
+- step: 1
+- step: 2
+- info: asdasd 123 -- // .asd
