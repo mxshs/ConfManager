@@ -2,14 +2,61 @@ package confparser
 
 import "fmt"
 
-type Job struct {
-    Name string
-    Opts []Opt
+type Parser struct {
+    t *Tokenizer
+
+    CurToken Token
+    PeekToken Token
+    Depth int
+
+    Jobs []ConfValue
+}
+
+type ConfValue interface {
+    String() string
+    Type() string
 }
 
 type Opt struct {
-    Name string
-    Content []string
+    Name StandaloneValue 
+    Value ConfValue 
+}
+
+func (o *Opt) String() string {
+    return fmt.Sprintf("{%s: %s}", o.Name.String(), o.Value.String())
+}
+
+func (o *Opt) Type() string {
+    return "Opt"
+}
+
+type Block struct {
+    Opts []ConfValue
+}
+
+func (b *Block) String() string {
+    var block string
+    for _, opt := range b.Opts {
+        block += fmt.Sprintf("\n\t%s", opt)
+    }
+
+    return "{" + block + "\n}"
+}
+
+func (b *Block) Type() string {
+    return "Block"
+}
+
+type StandaloneValue struct {
+    Value string
+}
+
+func (sv *StandaloneValue) String() string {
+    return sv.Value
+}
+
+func (sv *StandaloneValue) Type() string {
+    return "Value"
 }
 
 type ParseError struct {
@@ -20,116 +67,155 @@ func (p ParseError) Error() string {
     return p.errorString
 }
 
-func ParseEval(t *Tokenizer) ([]Job, error) {
-    res := []Job{}
+func GetParser(t *Tokenizer) *Parser {
+    p := &Parser{
+        t: t,
+    }
 
-    for t.CurToken.Type != EOF {
-        if t.CurToken.Type == NAME {
-            job, err := parseJob(t)
+    p.readToken()
+    p.readToken()
+
+    return p
+}
+
+func (p *Parser) readToken() {
+    p.Depth = p.t.Depth
+    p.CurToken = p.PeekToken
+    if p.t.curOffset < len(p.t.conf) {
+        p.PeekToken = p.t.ReadToken()
+    }
+}
+
+func (p *Parser) Parse() ([]ConfValue, error) {
+    res := []ConfValue{}
+
+    for p.CurToken.Type != EOF {
+        if p.CurToken.Type == NAME {
+            job, err := p.parseJob()
             if err != nil {
                 return nil, err
             }
 
-            res = append(res, *job)
+            res = append(res, job)
         } else {
-            t.ReadToken()
+            p.readToken()
         }
     }
 
     return res, nil
 }
 
-func parseJob(t *Tokenizer) (*Job, error) {
-    t.ReadToken()
-    t.ReadToken()
-
-    name, _ := parseIdent(t)
-    job := &Job{Name: name}
-
-    t.ReadToken()
-    tok := t.CurToken
-
-    for t.CurToken.Type != EOF {
-        if tok.Type != NAME {
-            unexpectedTokenError(NAME, t.CurToken.Type)
-        }
-       
-        opt := Opt{Name: tok.Literal}
-
-        tok = *t.ReadToken()
-        if tok.Type != COLON {
-            unexpectedTokenError(COLON, t.CurToken.Type)
-        }
-
-        tok = *t.ReadToken()
-        if tok.Type == NAME {
-            ident, err := parseIdent(t)
-            if err != nil {
-                return nil, err
-            }
-
-            opt.Content = append(opt.Content, ident)
-        } else if tok.Type == NEWL {
-            t.ReadToken()
-            opts, err := parseOpts(t)
-            if err != nil {
-                return nil, err
-            }
-
-            opt.Content = opts
-        }
-
-        job.Opts = append(job.Opts, opt)
-
-        if t.CurToken.Type != EOF {
-            tok = *t.ReadToken()
-        }
+func (p *Parser) parseJob() (ConfValue, error) {
+    block, err := p.parseBlock()
+    if err != nil {
+        return nil, err
     }
 
-    return job, nil
+    return block, nil
 }
 
-func parseIdent(t *Tokenizer) (string, error) {
-    res := ""
+func (p *Parser) parseBlock() (*Block, error) {
+    block := &Block{}
+    curr_depth := p.Depth
 
-    for t.CurToken.Type != NEWL && t.CurToken.Type != EOF {
-        res += t.CurToken.Literal
-        t.ReadToken()
+    for p.CurToken.Type != EOF && p.Depth >= curr_depth {
+        opt, err := p.parseLine()
+        if err != nil {
+            return nil, err
+        }
+
+        block.Opts = append(block.Opts, opt)
+
+        if p.CurToken.Type == NEWL {
+            p.readToken()
+        }
     }
 
-    return res, nil
+    return block, nil
 }
 
-func parseOpts(t *Tokenizer) ([]string, error) {
-    if t.CurToken.Type != DASH {
-        return nil, unexpectedTokenError(DASH, t.CurToken.Type)
-    }
+func (p *Parser) parseLine() (*Opt, error) {
+    opt := &Opt{Name: p.parseKey()}
 
-    res := []string{}
+    p.foldSpaces(0)
+    p.readToken()
+    p.foldSpaces(0)
 
-    for t.CurToken.Type == DASH {
-        cmd := ""
-        
-        t.ReadToken()
-        
-        for t.CurToken.Type != NEWL && t.CurToken.Type != EOF {
-            cmd += t.CurToken.Literal
-            t.ReadToken()
+    if p.CurToken.Type == NEWL {
+        p.readToken()
+
+        value, err := p.parseBlock()
+        if err != nil {
+            return nil, err
         }
 
-        res = append(res, cmd)
-        
-        if t.CurToken.Type != EOF {
-            t.ReadToken()
+        opt.Value = value
+
+        return opt, nil
+    } else {
+        value, err := p.parseValue()
+        if err != nil {
+            return nil, err
         }
+
+        opt.Value = value
+
+        return opt, nil
+    }
+}
+
+func (p *Parser) parseKey() StandaloneValue {
+    var key string
+
+    if p.CurToken.Type == DASH {
+        p.readToken()
+        p.foldSpaces(0)
     }
 
-    return res, nil
+    for p.CurToken.Type != COLON && p.CurToken.Type != NEWL && p.CurToken.Type != EOF {
+        if p.CurToken.Type == SPACE {
+            key += p.foldSpaces(1)
+        }
+        key += p.CurToken.Literal
+        p.readToken()
+    }
+
+    return StandaloneValue{
+        Value: key,
+    }
+}
+
+func (p *Parser) parseValue() (ConfValue, error) {
+    var key string
+
+    for p.CurToken.Type != NEWL && p.CurToken.Type != EOF {
+        key += p.CurToken.Literal
+        p.readToken()
+    }
+
+    return &StandaloneValue{
+        Value: key,
+    }, nil
 }
 
 func unexpectedTokenError(exp, got tokenType) error {
     return ParseError{
         errorString: fmt.Sprintf("expected token %s, got: %s", exp, got),
     }
+}
+
+func (p *Parser) foldSpaces(fold_to int) (res string) {
+    counter := 0
+    for p.CurToken.Type == SPACE {
+        counter += 1
+        res += " "
+        p.readToken()
+    }
+
+    if counter > fold_to {
+        return res[:fold_to]
+    }
+
+    return res
 }
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"confmanager/internal/app/conf_fetch"
+	confparser "confmanager/internal/app/conf_parser"
 	"fmt"
 	"os"
 
@@ -15,7 +16,32 @@ func Read() {
             {
                 Name: "confmanager",
                 Action: func(ctx *cli.Context) error {
-                    fmt.Println(ctx.Args().First())
+                    name := ctx.Args().First()
+
+                    conf_fetch.FetchRepo(name)
+
+                    t, err := confparser.Start(name + "/test.conf")
+                    if err != nil {
+                        return err
+                    }
+
+                    p := confparser.GetParser(t)
+
+                    parsed, err := p.Parse()
+                    if err != nil {
+                        return err
+                    }
+
+                    jobs, err := confparser.GenCommands(parsed)
+                    if err != nil {
+                        return err
+                    }
+
+                    for _, job := range jobs {
+                        for _, cmd := range job.Commands {
+                            cmd.Run()
+                        }
+                    }
                     return nil
                 },
                 BashComplete: func(ctx *cli.Context) {

@@ -3,6 +3,7 @@ package conf_fetch
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -33,6 +34,7 @@ func SetEnv() {
 func init() {
     SetEnv()
 
+    fmt.Println(GITHUB_TOKEN)
     W = &Wrapper{}
     W.SetToken(GITHUB_TOKEN)
     W.SetUsername(GITHUB_USERNAME)
@@ -53,6 +55,17 @@ func GetNamesForAutocomp() ([]string, error) {
     err := updateCache()
 
     return Cache.arr, err 
+}
+
+func FetchRepo(name string) error {
+    err := W.FetchConf(name)
+    if err != nil {
+        return err
+    }
+
+    exec.Command("mkdir", name).Run()
+    exec.Command("tar", "-xf", name + ".tar.gz", "-C", name, "--strip-components", "1").Run()
+    return nil
 }
 
 func updateCache() error {

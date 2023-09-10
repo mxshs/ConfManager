@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 )
 
 type Wrapper struct {
@@ -75,19 +76,23 @@ func (w *Wrapper) FetchConf(name string) error {
     client := http.Client{}
 
     req := w.req_repo
-    req.URL = req.URL.JoinPath(name)
+    req.URL = req.URL.JoinPath(name + "/tarball")
 
-    res, ok := client.Do(req)
+    fmt.Println(req.URL.String())
+    resp, ok := client.Do(req)
     if ok != nil {
         return ok
     }
     
-    res_bytes, err:= io.ReadAll(res.Body)
+    out, err := os.Create(name + ".tar.gz")
+    if err != nil {
+        return err 
+    }
+
+    _, err = io.Copy(out, resp.Body)
     if err != nil {
         return err
     }
-
-    fmt.Printf(string(res_bytes))
 
     return nil
 }

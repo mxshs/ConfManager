@@ -1,5 +1,9 @@
 name: hello
-steps:
-- step: 1
-- step: 2
-- info: asdasd 123 -- // .asd
+action:
+    action 1: echo 1
+    action 2: echo 2
+    action 3: mkdir 123 
+option:
+    name: asd
+    test: asdas
+after: asd
