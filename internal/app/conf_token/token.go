@@ -1,22 +1,24 @@
-package confparser
+package conftoken 
 
 import (
 	"fmt"
 	"os"
 )
 
-type tokenType string
+type TokenType string
 
 type Token struct {
-    Type tokenType
+    Type TokenType
     Literal string
 }
 
 type Tokenizer struct {
     CurToken Token
-    curOffset int
-    lineOffset int
     Depth int
+    Length int
+    CurOffset int
+
+    lineOffset int
     conf []byte
 }
 
@@ -54,20 +56,21 @@ func Start(path string) (*Tokenizer, error) {
 
     t := &Tokenizer{}
     t.conf = append(conf, 0)
+    t.Length = len(t.conf)
 
     return t, nil
 }
 
 func (t *Tokenizer) ReadToken() Token {
-    curr := t.conf[t.curOffset]
+    curr := t.conf[t.CurOffset]
     
     switch curr {
     case ' ':
         if t.lineOffset == 0 {
             counter := 0
-            for t.conf[t.curOffset] == ' ' {
+            for t.conf[t.CurOffset] == ' ' {
                 counter += 1
-                t.curOffset += 1
+                t.CurOffset += 1
                 t.lineOffset += 1
             }
 
@@ -182,31 +185,31 @@ func (t *Tokenizer) ReadToken() Token {
         }
     }
     
-    t.curOffset += 1
+    t.CurOffset += 1
     t.lineOffset += 1
     return t.CurToken
 }
 
 func (t *Tokenizer) readWord() []byte {
-    start := t.curOffset
+    start := t.CurOffset
 
-    for isLetter(t.conf[t.curOffset]) {
-        t.curOffset += 1
+    for isLetter(t.conf[t.CurOffset]) {
+        t.CurOffset += 1
         t.lineOffset += 1
     }
 
-    return t.conf[start:t.curOffset]
+    return t.conf[start:t.CurOffset]
 }
 
 func (t *Tokenizer) readNumber() []byte {
-    start := t.curOffset
+    start := t.CurOffset
 
-    for isDigit(t.conf[t.curOffset]) {
-        t.curOffset += 1
+    for isDigit(t.conf[t.CurOffset]) {
+        t.CurOffset += 1
         t.lineOffset += 1
     }
 
-    return t.conf[start:t.curOffset]
+    return t.conf[start:t.CurOffset]
 }
 
 func isLetter(ch byte) bool {

@@ -1,62 +1,73 @@
 package confparser
 
-import "fmt"
+import (
+    "fmt"
+    conftoken "confmanager/internal/app/conf_token"
+)
 
 type Parser struct {
-    t *Tokenizer
+    t *conftoken.Tokenizer
 
-    CurToken Token
-    PeekToken Token
+    CurToken conftoken.Token
+    PeekToken conftoken.Token
     Depth int
 
-    Jobs []ConfValue
+    Jobs []Node
 }
 
-type ConfValue interface {
+type Node interface {
     String() string
     Type() string
 }
 
-type Opt struct {
-    Name StandaloneValue 
-    Value ConfValue 
+type Mapping struct {
+    Name Key 
+    Value Node 
 }
 
-func (o *Opt) String() string {
-    return fmt.Sprintf("{%s: %s}", o.Name.String(), o.Value.String())
+func (m *Mapping) String() string {
+    return fmt.Sprintf("{%s: %s}", m.Name.String(), m.Value.String())
 }
 
-func (o *Opt) Type() string {
-    return "Opt"
+func (m *Mapping) Type() string {
+    return "Mapping"
 }
 
-type Block struct {
-    Opts []ConfValue
+type Key string
+
+func (k Key) String() string {
+    return string(k)
 }
 
-func (b *Block) String() string {
-    var block string
-    for _, opt := range b.Opts {
-        block += fmt.Sprintf("\n\t%s", opt)
+func (k Key) Type() string {
+    return "Key"
+}
+
+type Sequence struct {
+    Members []Node
+}
+
+func (s *Sequence) String() string {
+    var seq string
+    for _, mem := range s.Members {
+        seq += fmt.Sprintf("\n\t%s", mem)
     }
 
-    return "{" + block + "\n}"
+    return "{" + seq + "\n}"
 }
 
-func (b *Block) Type() string {
-    return "Block"
+func (s *Sequence) Type() string {
+    return "Sequence"
 }
 
-type StandaloneValue struct {
-    Value string
+type Scalar string
+
+func (sc Scalar) String() string {
+    return string(sc) 
 }
 
-func (sv *StandaloneValue) String() string {
-    return sv.Value
-}
-
-func (sv *StandaloneValue) Type() string {
-    return "Value"
+func (sc Scalar) Type() string {
+    return "Scalar"
 }
 
 type ParseError struct {
@@ -67,7 +78,7 @@ func (p ParseError) Error() string {
     return p.errorString
 }
 
-func GetParser(t *Tokenizer) *Parser {
+func GetParser(t *conftoken.Tokenizer) *Parser {
     p := &Parser{
         t: t,
     }
@@ -81,16 +92,16 @@ func GetParser(t *Tokenizer) *Parser {
 func (p *Parser) readToken() {
     p.Depth = p.t.Depth
     p.CurToken = p.PeekToken
-    if p.t.curOffset < len(p.t.conf) {
+    if p.t.CurOffset < p.t.Length {
         p.PeekToken = p.t.ReadToken()
     }
 }
 
-func (p *Parser) Parse() ([]ConfValue, error) {
-    res := []ConfValue{}
+func (p *Parser) Parse() ([]Node, error) {
+    res := []Node{}
 
-    for p.CurToken.Type != EOF {
-        if p.CurToken.Type == NAME {
+    for p.CurToken.Type != conftoken.EOF {
+        if p.CurToken.Type == conftoken.NAME {
             job, err := p.parseJob()
             if err != nil {
                 return nil, err
@@ -105,8 +116,8 @@ func (p *Parser) Parse() ([]ConfValue, error) {
     return res, nil
 }
 
-func (p *Parser) parseJob() (ConfValue, error) {
-    block, err := p.parseBlock()
+func (p *Parser) parseJob() (Node, error) {
+    block, err := p.parseSequence()
     if err != nil {
         return nil, err
     }
@@ -114,37 +125,43 @@ func (p *Parser) parseJob() (ConfValue, error) {
     return block, nil
 }
 
-func (p *Parser) parseBlock() (*Block, error) {
-    block := &Block{}
+func (p *Parser) parseSequence() (*Sequence, error) {
+    seq := &Sequence{}
     curr_depth := p.Depth
 
-    for p.CurToken.Type != EOF && p.Depth >= curr_depth {
-        opt, err := p.parseLine()
+    for p.CurToken.Type != conftoken.EOF && p.Depth >= curr_depth {
+        line, err := p.parseLine()
         if err != nil {
             return nil, err
         }
 
-        block.Opts = append(block.Opts, opt)
+        seq.Members = append(seq.Members, line)
 
-        if p.CurToken.Type == NEWL {
+        if p.CurToken.Type == conftoken.NEWL {
             p.readToken()
         }
     }
 
-    return block, nil
+    return seq, nil
 }
 
-func (p *Parser) parseLine() (*Opt, error) {
-    opt := &Opt{Name: p.parseKey()}
+func (p *Parser) parseLine() (Node, error) {
+    name := p.parseKey()
+    if name.Type() == "Scalar" {
+        return name, nil
+    }
+
+    key, _ := name.(Key)
+    opt := &Mapping{Name: key} 
 
     p.foldSpaces(0)
     p.readToken()
     p.foldSpaces(0)
 
-    if p.CurToken.Type == NEWL {
+    if p.CurToken.Type == conftoken.NEWL {
         p.readToken()
 
-        value, err := p.parseBlock()
+        value, err := p.parseSequence()
         if err != nil {
             return nil, err
         }
@@ -153,10 +170,7 @@ func (p *Parser) parseLine() (*Opt, error) {
 
         return opt, nil
     } else {
-        value, err := p.parseValue()
-        if err != nil {
-            return nil, err
-        }
+        value := p.parseValue()
 
         opt.Value = value
 
@@ -164,56 +178,54 @@ func (p *Parser) parseLine() (*Opt, error) {
     }
 }
 
-func (p *Parser) parseKey() StandaloneValue {
-    var key string
-
-    if p.CurToken.Type == DASH {
+func (p *Parser) parseKey() Node {
+    if p.CurToken.Type == conftoken.DASH {
+        fmt.Println("IM SCALAR")
         p.readToken()
         p.foldSpaces(0)
+
+        return p.parseValue()
     }
 
-    for p.CurToken.Type != COLON && p.CurToken.Type != NEWL && p.CurToken.Type != EOF {
-        if p.CurToken.Type == SPACE {
+    var key string
+
+    for p.CurToken.Type != conftoken.COLON {
+        if p.CurToken.Type == conftoken.SPACE {
             key += p.foldSpaces(1)
         }
         key += p.CurToken.Literal
         p.readToken()
     }
 
-    return StandaloneValue{
-        Value: key,
-    }
+    return Key(key)
 }
 
-func (p *Parser) parseValue() (ConfValue, error) {
-    var key string
+func (p *Parser) parseValue() Scalar {
+    var scalar string 
 
-    for p.CurToken.Type != NEWL && p.CurToken.Type != EOF {
-        key += p.CurToken.Literal
+    for p.CurToken.Type != conftoken.NEWL && p.CurToken.Type != conftoken.EOF {
+        scalar += p.CurToken.Literal
         p.readToken()
     }
 
-    return &StandaloneValue{
-        Value: key,
-    }, nil
+    return Scalar(scalar)
 }
 
-func unexpectedTokenError(exp, got tokenType) error {
+func unexpectedTokenError(exp, got conftoken.TokenType) error {
     return ParseError{
         errorString: fmt.Sprintf("expected token %s, got: %s", exp, got),
     }
 }
 
 func (p *Parser) foldSpaces(fold_to int) (res string) {
-    counter := 0
-    for p.CurToken.Type == SPACE {
-        counter += 1
+    for p.CurToken.Type == conftoken.SPACE && fold_to > 0 {
+        fold_to -= 1
         res += " "
         p.readToken()
     }
 
-    if counter > fold_to {
-        return res[:fold_to]
+    for p.CurToken.Type == conftoken.SPACE {
+        p.readToken()
     }
 
     return res
