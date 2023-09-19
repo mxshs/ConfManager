@@ -44,7 +44,7 @@ func GenCommandSet(job confparser.Node) (*CommandSet, error) {
 
 		switch opt.Name.String() {
 		case "name":
-			res.Name = opt.String()
+			res.Name = opt.Value.String()
 		case "action":
 			action_set, err := genActionSet(opt.Value)
 			if err != nil {

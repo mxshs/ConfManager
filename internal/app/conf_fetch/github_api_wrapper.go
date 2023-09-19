@@ -14,10 +14,19 @@ type Wrapper struct {
 	username string
 	req_repo *http.Request
 	req_user *http.Request
+	req_q *http.Request
 }
 
-type RepoName struct {
+type Name struct {
 	Name string `json:"name"`
+}
+
+type GitTree struct {
+    Tree []Path `json:"tree"`
+}
+
+type Path struct {
+    Path string `json:"path"`
 }
 
 func (w *Wrapper) SetToken(token string) {
@@ -50,26 +59,37 @@ func (w *Wrapper) ConstructRepoUrl() {
 	w.req_repo = req
 }
 
-func (w *Wrapper) FetchNames() ([]byte, error) {
+func (w *Wrapper) ConstructSearchQuery() {
+	req, err := http.NewRequest(
+		"GET",
+        "https://api.github.com/search/",
+		nil,
+	)
+
+    if err != nil {
+        panic(err)
+    }
+
+	req.Header.Set("Authorization", "token " + w.token)
+	w.req_q = req
+}
+
+func (w *Wrapper) FetchNames() ([]Name, error) {
 	client := http.Client{}
 
-	res, ok := client.Do(w.req_user)
+	response, ok := client.Do(w.req_user)
 	if ok != nil {
 		return nil, ok
 	}
 
-	res_bytes, err := io.ReadAll(res.Body)
+	response_bytes, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	return res_bytes, nil
-}
+	var res []Name
 
-func (w *Wrapper) UnmarshalNames(nameBytes []byte) ([]RepoName, error) {
-	var res []RepoName
-
-	err := json.Unmarshal(nameBytes, &res)
+	err = json.Unmarshal(response_bytes, &res)
 	if err != nil {
 		return nil, err
 	}
@@ -102,3 +122,32 @@ func (w *Wrapper) FetchConf(name string) error {
 	exec.Command("tar", "-xf", name+".tar.gz", "-C", name, "--strip-components", "1").Run()
 	return nil
 }
+
+func (w *Wrapper) FetchFileNames(repo string) ([]Path, error) {
+    client := http.Client{}
+
+    req := w.req_repo
+
+    req.URL = req.URL.JoinPath(repo + "/git/trees/main")
+    req.URL.RawQuery = "recursive=1"
+
+    resp, ok := client.Do(req)
+    if ok != nil {
+        return nil, ok 
+    }
+
+	resp_bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+    var tree GitTree
+
+    err = json.Unmarshal(resp_bytes, &tree)
+    if err != nil {
+        return nil, err
+    }
+
+    return tree.Tree, nil
+}
+ 

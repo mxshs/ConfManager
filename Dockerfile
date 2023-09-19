@@ -13,4 +13,4 @@ RUN ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
 
 COPY . .
 
-CMD ["./confmanager", "confmanager", "nvim_conf"]
+# CMD ["./confmanager", "nvim_conf"]

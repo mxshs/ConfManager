@@ -1,5 +1,6 @@
 services:
   core:
     build: .
+    stdin_open: true
     tty: true
 

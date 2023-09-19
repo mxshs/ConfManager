@@ -3,18 +3,17 @@ package confautocomplete
 import (
 	"bufio"
 	"os"
+	"strings"
 	"time"
-
-	"confmanager/internal/app/conf_fetch"
 )
 
 const TIME_FORMAT string = "Mon Jan _2 15:04:05 2006"
 
 type Cache interface {
-	Open(string) (Cache, error)
-	ReadCache() ([]string, error)
-	checkValidCache() bool
-	updateCache() ([]string, error)
+    Open(string) error
+	ReadCache(func() ([]string, error)) ([]string, error)
+	isValid() bool
+	updateCache(func() ([]string, error)) ([]string, error)
 }
 
 type FileCache struct {
@@ -23,10 +22,10 @@ type FileCache struct {
 	reader *bufio.Reader
 }
 
-func (fc *FileCache) Open(path string) (Cache, error) {
+func (fc *FileCache) Open(path string) error {
 	handle, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0777)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	reader := bufio.NewReader(handle)
@@ -35,14 +34,12 @@ func (fc *FileCache) Open(path string) (Cache, error) {
 	fc.handle = handle
 	fc.reader = reader
 
-	return fc, nil
+	return nil
 }
 
-func (fc *FileCache) ReadCache() ([]string, error) {
-	validity := fc.checkValidCache()
-
-	if !validity {
-		return fc.updateCache()
+func (fc *FileCache) ReadCache(fetchFn func() ([]string, error)) ([]string, error) {
+	if !fc.isValid() {
+		return fc.updateCache(fetchFn)
 	} else {
 		comp := []string{}
 
@@ -58,12 +55,12 @@ func (fc *FileCache) ReadCache() ([]string, error) {
 	}
 }
 
-func (fc *FileCache) checkValidCache() bool {
+func (fc *FileCache) isValid() bool {
 	cacheTime, err := fc.reader.ReadString('\n')
 	if err != nil {
 		return false
 	} else {
-		cacheTime = cacheTime[:len(cacheTime)-1]
+		cacheTime = cacheTime[:len(cacheTime) - 1]
 	}
 
 	cacheTimeAsTime, err := time.Parse(TIME_FORMAT, cacheTime)
@@ -71,14 +68,14 @@ func (fc *FileCache) checkValidCache() bool {
 		return false
 	}
 
-	if time.Since(cacheTimeAsTime) > 15*time.Second {
+	if time.Since(cacheTimeAsTime) > 15 * time.Second {
 		return false
 	}
 
 	return true
 }
 
-func (fc *FileCache) updateCache() ([]string, error) {
+func (fc *FileCache) updateCache(fetchFn func() ([]string, error)) ([]string, error) {
 	err := os.Truncate(fc.path, 0)
 	if err != nil {
 		return nil, err
@@ -89,26 +86,15 @@ func (fc *FileCache) updateCache() ([]string, error) {
 		return nil, err
 	}
 
-	names, err := conf_fetch.W.FetchNames()
-	if err != nil {
-		return nil, err
-	}
+    res, err := fetchFn()
+    if err != nil {
+        return nil, err
+    }
 
-	res, err := conf_fetch.W.UnmarshalNames(names)
-	if err != nil {
-		return nil, err
-	}
+	to_write := time.Now().UTC().Format(TIME_FORMAT) + "\n" + strings.Join(res, "\n")
 
-	comp := []string{}
-	to_write := []byte(time.Now().UTC().Format(TIME_FORMAT) + "\n")
+	fc.handle.Write([]byte(to_write))
 
-	for _, name := range res {
-		temp := []byte(name.Name + "\n")
-		to_write = append(to_write, temp...)
-		comp = append(comp, name.Name)
-	}
-
-	fc.handle.Write(to_write)
-
-	return comp, nil
+	return res, nil
 }
+
